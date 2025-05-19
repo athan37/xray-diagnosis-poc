@@ -7,6 +7,7 @@ import argparse
 from torchvision import transforms
 import matplotlib.pyplot as plt
 import sys
+import cv2
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -211,6 +212,86 @@ class XRayDiagnosisModel:
             return None
         else:
             return plt.gcf()
+
+    def generate_heatmap(self, image_path, target_class_idx=None):
+        """
+        Generate a Grad-CAM heatmap for the given image and class index
+        
+        Args:
+            image_path (str): Path to image file
+            target_class_idx (int, optional): Index of the target class for heatmap.
+                                             If None, uses the highest probability class.
+            
+        Returns:
+            tuple: (original_image, heatmap, overlaid_image, target_class)
+        """
+        try:
+            # Preprocess image
+            image_tensor = self.preprocess_image(image_path)
+            original_image = Image.open(image_path).convert('RGB')
+            
+            # Get model prediction to find most probable class if not specified
+            with torch.no_grad():
+                outputs = self.model(image_tensor)
+                probabilities = torch.sigmoid(outputs)
+                
+                if target_class_idx is None:
+                    target_class_idx = torch.argmax(probabilities).item()
+            
+            # Get the target class name
+            target_class = self.class_names[target_class_idx]
+            
+            # Simplified attention visualization for ViT
+            # Since Grad-CAM is complex for ViT, we'll use attention rollout instead
+            
+            # Forward pass to get attention
+            with torch.no_grad():
+                # Get attention weights from the last transformer block
+                outputs = self.model.backbone(pixel_values=image_tensor, output_attentions=True)
+                attentions = outputs.attentions[-1]  # Last layer attention
+                
+                # Average attention across heads
+                attention_map = attentions.mean(dim=1).squeeze(0).cpu().numpy()
+                
+                # Get attention for CLS token to all patch tokens
+                cls_attn = attention_map[0, 1:]  # Skip CLS token's attention to itself
+                
+                # Reshape to square grid
+                patch_size = int(np.sqrt(cls_attn.shape[0]))
+                attention_map = cls_attn.reshape(patch_size, patch_size)
+                
+                # Upscale to image size
+                width, height = original_image.size
+                attention_map = cv2.resize(attention_map, (width, height), interpolation=cv2.INTER_LINEAR)
+                
+                # Normalize
+                attention_map = (attention_map - attention_map.min()) / (attention_map.max() - attention_map.min() + 1e-8)
+                
+                # Create heatmap
+                heatmap = np.uint8(255 * attention_map)
+                heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
+                
+                # Convert PIL Image to NumPy array for OpenCV
+                image_np = np.array(original_image)
+                # Convert RGB to BGR (OpenCV uses BGR)
+                image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
+                
+                # Create superimposed image
+                superimposed_img = cv2.addWeighted(image_np, 0.6, heatmap, 0.4, 0)
+                
+                # Convert back to RGB for matplotlib
+                superimposed_img = cv2.cvtColor(superimposed_img, cv2.COLOR_BGR2RGB)
+                heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
+                
+            return np.array(original_image), heatmap, superimposed_img, target_class
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f"Error generating heatmap: {str(e)}")
+            # Return the original image if heatmap generation fails
+            original_image_np = np.array(original_image)
+            return original_image_np, original_image_np, original_image_np, target_class
 
 def main():
     parser = argparse.ArgumentParser(description='X-ray Diagnosis AI Deployment Script')

@@ -145,6 +145,10 @@ class BioViLClassifier(nn.Module):
         else:
             self.backbone = ViTModel.from_pretrained("google/vit-base-patch16-224")
         
+        # Add hook to get last hidden state
+        self.last_hidden_state = None
+        self.backbone.encoder.layer[-1].register_forward_hook(self._get_last_hidden_state)
+        
         # Classification head for multi-label classification
         self.classifier = nn.Sequential(
             nn.Linear(self.backbone.config.hidden_size, 512),
@@ -152,6 +156,14 @@ class BioViLClassifier(nn.Module):
             nn.Dropout(0.2),
             nn.Linear(512, num_classes)
         )
+    
+    def _get_last_hidden_state(self, module, input, output):
+        """Hook to get the last hidden state for Grad-CAM visualization"""
+        self.last_hidden_state = output
+    
+    def get_last_hidden_state(self):
+        """Return the last hidden state for Grad-CAM"""
+        return self.last_hidden_state
         
     def forward(self, x):
         """Forward pass with standard torch tensor images [B, C, H, W]"""

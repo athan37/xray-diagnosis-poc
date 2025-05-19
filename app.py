@@ -1,6 +1,8 @@
 import os
 import json
 import torch
+import numpy as np
+import cv2
 from flask import Flask, request, jsonify, render_template
 from werkzeug.utils import secure_filename
 import logging
@@ -122,12 +124,36 @@ def predict():
             # Get positive findings
             positives = [k for k, v in result['predictions'].items() if v]
             
+            # Generate heatmaps for the top 3 most probable findings
+            heatmaps = []
+            for i, (class_name, prob) in enumerate(items[:3]):
+                if prob > 0.1:  # Only generate for significant probabilities
+                    try:
+                        # Find the class index for this class name
+                        class_idx = model.class_names.index(class_name)
+                        
+                        # Generate the heatmap
+                        _, _, superimposed_img, _ = model.generate_heatmap(filepath, class_idx)
+                        
+                        # Convert to base64
+                        _, heatmap_buffer = cv2.imencode('.png', superimposed_img)
+                        heatmap_base64 = base64.b64encode(heatmap_buffer).decode('utf-8')
+                        
+                        heatmaps.append({
+                            'class_name': class_name,
+                            'probability': prob,
+                            'heatmap': heatmap_base64
+                        })
+                    except Exception as e:
+                        logger.error(f"Error generating heatmap for {class_name}: {str(e)}")
+            
             # Add visualization to result
             api_result = {
                 'probabilities': result['probabilities'],
                 'predictions': result['predictions'],
                 'positive_findings': positives,
-                'visualization': encoded_img
+                'visualization': encoded_img,
+                'heatmaps': heatmaps
             }
             
             # Clean up
