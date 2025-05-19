@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>X-Ray Diagnosis AI</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding-top: 2rem;
+        }
+
+        .upload-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            background-color: #f8f9fa;
+        }
+
+        #results-container {
+            display: none;
+            margin-top: 2rem;
+        }
+
+        #visualization-img {
+            max-width: 100%;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .probability-bar {
+            height: 25px;
+            margin-bottom: 5px;
+            position: relative;
+        }
+
+        .probability-label {
+            position: absolute;
+            left: 10px;
+            top: 2px;
+            color: white;
+            font-weight: bold;
+            text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.5);
+        }
+
+        .loader {
+            display: none;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 2s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="upload-container">
+            <h1 class="text-center mb-4">X-Ray Diagnosis AI</h1>
+            <p class="text-center text-muted mb-4">
+                Upload a chest X-ray image to receive AI-powered diagnosis predictions.
+            </p>
+
+            <form id="upload-form" enctype="multipart/form-data">
+                <div class="mb-3">
+                    <label for="xray-file" class="form-label">Select X-ray image (PNG, JPG)</label>
+                    <input class="form-control" type="file" id="xray-file" name="file" accept=".png,.jpg,.jpeg">
+                </div>
+                <div class="d-grid gap-2">
+                    <button class="btn btn-primary" type="submit">Analyze X-ray</button>
+                </div>
+            </form>
+
+            <div id="loader" class="loader"></div>
+
+            <div id="results-container">
+                <h3 class="mb-3">Analysis Results</h3>
+
+                <div class="mb-4">
+                    <h5>Visualization</h5>
+                    <img id="visualization-img" class="img-fluid" src="" alt="Prediction Visualization">
+                </div>
+
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <h5>Positive Findings</h5>
+                        <ul id="positive-findings" class="list-group">
+                            <!-- Positive findings will be populated here -->
+                        </ul>
+                    </div>
+
+                    <div class="col-md-6">
+                        <h5>All Probabilities</h5>
+                        <div id="probabilities-container">
+                            <!-- Probability bars will be populated here -->
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-grid gap-2">
+                    <button class="btn btn-secondary" id="reset-btn">Analyze Another X-ray</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center mt-4 text-muted">
+            <p>
+                <small>
+                    This is a proof-of-concept for chest X-ray diagnosis.
+                    Not intended for clinical use. Trained on ~7,000 images.
+                </small>
+            </p>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const form = document.getElementById('upload-form');
+            const loader = document.getElementById('loader');
+            const resultsContainer = document.getElementById('results-container');
+            const visualizationImg = document.getElementById('visualization-img');
+            const positiveFindingsList = document.getElementById('positive-findings');
+            const probabilitiesContainer = document.getElementById('probabilities-container');
+            const resetBtn = document.getElementById('reset-btn');
+
+            form.addEventListener('submit', function (e) {
+                e.preventDefault();
+
+                const fileInput = document.getElementById('xray-file');
+                const file = fileInput.files[0];
+
+                if (!file) {
+                    alert('Please select a file');
+                    return;
+                }
+
+                // Show loader
+                loader.style.display = 'block';
+                form.style.display = 'none';
+
+                // Create form data
+                const formData = new FormData();
+                formData.append('file', file);
+
+                // Send request
+                fetch('/predict', {
+                    method: 'POST',
+                    body: formData
+                })
+                    .then(response => {
+                        if (!response.ok) {
+                            return response.json().then(data => {
+                                throw new Error(data.error || 'Error processing image');
+                            });
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        // Hide loader
+                        loader.style.display = 'none';
+
+                        // Set visualization image
+                        visualizationImg.src = 'data:image/png;base64,' + data.visualization;
+
+                        // Populate positive findings
+                        positiveFindingsList.innerHTML = '';
+                        if (data.positive_findings.length > 0) {
+                            data.positive_findings.forEach(finding => {
+                                const item = document.createElement('li');
+                                item.className = 'list-group-item list-group-item-success';
+                                item.textContent = finding;
+                                positiveFindingsList.appendChild(item);
+                            });
+                        } else {
+                            const item = document.createElement('li');
+                            item.className = 'list-group-item';
+                            item.textContent = 'No positive findings detected';
+                            positiveFindingsList.appendChild(item);
+                        }
+
+                        // Populate probability bars
+                        probabilitiesContainer.innerHTML = '';
+                        const probabilities = Object.entries(data.probabilities)
+                            .sort((a, b) => b[1] - a[1]);
+
+                        probabilities.forEach(([condition, probability]) => {
+                            const barContainer = document.createElement('div');
+                            barContainer.className = 'mb-2';
+
+                            const label = document.createElement('div');
+                            label.className = 'small mb-1';
+                            label.textContent = condition;
+
+                            const barOuter = document.createElement('div');
+                            barOuter.className = 'progress';
+                            barOuter.style.height = '20px';
+
+                            const barInner = document.createElement('div');
+                            barInner.className = probability > 0.5 ?
+                                'progress-bar bg-success' : 'progress-bar bg-secondary';
+                            barInner.style.width = `${probability * 100}%`;
+                            barInner.textContent = `${(probability * 100).toFixed(1)}%`;
+
+                            barOuter.appendChild(barInner);
+                            barContainer.appendChild(label);
+                            barContainer.appendChild(barOuter);
+                            probabilitiesContainer.appendChild(barContainer);
+                        });
+
+                        // Show results
+                        resultsContainer.style.display = 'block';
+                    })
+                    .catch(error => {
+                        loader.style.display = 'none';
+                        form.style.display = 'block';
+                        alert('Error: ' + error.message);
+                    });
+            });
+
+            resetBtn.addEventListener('click', function () {
+                // Reset form
+                form.reset();
+                form.style.display = 'block';
+                resultsContainer.style.display = 'none';
+            });
+        });
+    </script>
+</body>
+
+</html>
